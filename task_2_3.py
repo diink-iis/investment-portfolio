@@ -14,48 +14,6 @@ from typing import Tuple, Dict, List
 from datetime import datetime, timedelta
 
 
-def load_prices_data(file_path: str) -> pd.DataFrame:
-    """
-    Загрузка данных о ценах из CSV файла.
-
-    Parameters:
-    -----------
-    file_path : str
-        Путь к CSV файлу с ценами
-
-    Returns:
-    --------
-    pd.DataFrame
-        DataFrame с датами и ценами акций
-    """
-    # Загрузка данных
-    df = pd.read_csv(file_path, sep=';', decimal=',')
-
-    # Удаление пробелов в названиях столбцов
-    df.columns = df.columns.str.strip()
-
-    # Парсинг дат из формата dd.mm.yyyy
-    df['date'] = pd.to_datetime(df['date'], format='%d.%m.%Y')
-
-    # Установка даты как индекса
-    df.set_index('date', inplace=True)
-
-    # Удаление столбцов с пустыми значениями (или заменяем их на NaN)
-    df = df.replace('', np.nan).replace(' ', np.nan)
-
-    # Удаление строк где все значения NaN (кроме первой строки)
-    df = df.dropna(how='all')
-
-    # Преобразование в числовой формат
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    # Удаление столбцов с полностью пропущенными данными
-    df = df.dropna(axis=1, how='all')
-
-    return df
-
-
 def calculate_returns(prices: pd.DataFrame) -> pd.DataFrame:
     """
     Расчет логарифмических доходностей.
@@ -389,7 +347,3 @@ def main():
         'rolling_exp': rolling_exp_results,
         'expanding_exp': expanding_exp_results
     }
-
-
-if __name__ == '__main__':
-    results = main()

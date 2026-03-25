@@ -39,7 +39,6 @@ def calculate_efficient_frontier(
     """
     n_assets = len(mean_returns)
 
-    # Проверка положительной определенности ковариационной матрицы
     try:
         L = np.linalg.cholesky(cov_matrix)
     except np.linalg.LinAlgError:
@@ -47,32 +46,28 @@ def calculate_efficient_frontier(
         cov_matrix = cov_matrix + np.eye(n_assets) * 1e-8
         L = np.linalg.cholesky(cov_matrix)
 
-    # Вычисление матрицы, обратной ковариационной
     cov_inv = np.linalg.inv(cov_matrix)
 
-    # Вычисление коэффициентов A, B, C, D
+
     ones = np.ones(n_assets)
     A = ones.T @ cov_inv @ ones
     B = mean_returns.T @ cov_inv @ mean_returns
     C = mean_returns.T @ cov_inv @ ones
     D = A * B - C ** 2
 
-    # Портфель с минимальной дисперсией (GMVP)
+
     w_gmvp = cov_inv @ ones / A
-    min_variance_gmvp = w_gmvp.T @ cov_matrix @ w_gmvp
     gmvp_return = w_gmvp.T @ mean_returns
 
-    # Определение диапазона доходностей
+    
     if min_return is None:
         min_return = gmvp_return
 
     if max_return is None:
         max_return = np.max(mean_returns)
 
-    # Генерация доходностей для построения границы
+    
     target_returns = np.linspace(min_return, max_return, n_points)
-
-    # Расчет дисперсий для каждой целевой доходности
     variances = (A * target_returns ** 2 - 2 * C * target_returns + B) / D
     std_devs = np.sqrt(variances)
 
@@ -104,18 +99,18 @@ def calculate_efficient_frontier_weights(
     n_assets = len(mean_returns)
     cov_inv = np.linalg.inv(cov_matrix)
 
-    # Коэффициенты
+    
     ones = np.ones(n_assets)
     A = ones.T @ cov_inv @ ones
     B = mean_returns.T @ cov_inv @ mean_returns
     C = mean_returns.T @ cov_inv @ ones
     D = A * B - C ** 2
 
-    # Векторы g и h
+    
     g = (B * cov_inv @ ones - C * cov_inv @ mean_returns) / D
     h = (C * cov_inv @ ones - A * cov_inv @ mean_returns) / D
 
-    # Расчет весов для каждой целевой доходности
+
     weights = np.zeros((len(target_returns), n_assets))
     for i, r in enumerate(target_returns):
         weights[i, :] = g + h * r
@@ -148,10 +143,8 @@ def calculate_efficient_frontiers_over_time(
         mean_returns = result['mean_returns']
         cov_matrix = result['covariance_matrix']
 
-        # Расчет эффективной границы
         returns, stds = calculate_efficient_frontier(mean_returns, cov_matrix, n_points)
 
-        # Расчет весов для портфелей
         weights = calculate_efficient_frontier_weights(mean_returns, cov_matrix, returns)
 
         frontiers[date] = {
@@ -248,7 +241,6 @@ def analyze_portfolio_composition_stability(
     for date in dates:
         frontier = frontiers[date]
 
-        # Выбор портфеля на границе по перцентилю
         idx = int(len(frontier['returns']) * percentile / 100)
         weights = frontier['weights'][idx, :]
 
@@ -262,13 +254,11 @@ def analyze_portfolio_composition_stability(
     df = pd.DataFrame(weights_data)
     df.set_index('date', inplace=True)
 
-    # Расчет изменения весов между периодами
     if len(df) > 1:
         weight_cols = [col for col in df.columns if col.startswith('w_')]
         for col in weight_cols:
             df[f'{col}_change'] = df[col].diff()
 
-        # Сумма абсолютных изменений весов (мера нестабильности)
         df['total_weight_change'] = df[[f'{col}_change' for col in weight_cols]].abs().sum(axis=1)
 
     return df
@@ -305,7 +295,7 @@ def efficient_frontier_dynamics_rolling(
     return frontiers, stability_metrics
 
 
-def task_9b_efficient_frontier_dynamics_expanding(
+def efficient_frontier_dynamics_expanding(
     returns: pd.DataFrame,
     step_size: str = '1Y',
     n_points: int = 100
@@ -327,24 +317,15 @@ def task_9b_efficient_frontier_dynamics_expanding(
     Tuple[Dict[datetime, dict], pd.DataFrame]
         (словарь эффективных границ, DataFrame с метриками стабильности)
     """
-    print(f"Задача 9b: Анализ эффективной границы расширяющимся окном (шаг {step_size})...")
 
-    # Анализ расширяющимся окном
     analysis_results = expanding_window_analysis(returns, step_size)
-    print(f"Получено окон: {len(analysis_results)}")
-
-    # Расчет эффективных границ для каждого окна
     frontiers = calculate_efficient_frontiers_over_time(analysis_results, n_points)
-    print(f"Рассчитано эффективных границ: {len(frontiers)}")
-
-    # Анализ стабильности
-    stability_metrics = analyze_efficient_frontier_stability(frontiers, returns.columns)
-    print(f"Рассчитаны метрики стабильности")
+    stability_metrics = analyze_efficient_frontier_stability(frontiers)
 
     return frontiers, stability_metrics
 
 
-def task_10_efficient_frontier_dynamics_exponential(
+def efficient_frontier_dynamics_exponential(
     returns: pd.DataFrame,
     window_size: str = '1Y',
     step_size: str = '1Y',
@@ -372,16 +353,17 @@ def task_10_efficient_frontier_dynamics_exponential(
     Tuple[Dict[datetime, dict], pd.DataFrame]
         (словарь эффективных границ, DataFrame с метриками стабильности)
     """
+
     analysis_results = rolling_window_analysis(
         returns, window_size, step_size, lambda_param
     )
     frontiers = calculate_efficient_frontiers_over_time(analysis_results, n_points)
-    stability_metrics = analyze_efficient_frontier_stability(frontiers, returns.columns)
+    stability_metrics = analyze_efficient_frontier_stability(frontiers)
 
     return frontiers, stability_metrics
 
 
-def task_10_exp_efficient_frontier_dynamics_expanding(
+def exp_efficient_frontier_dynamics_expanding(
     returns: pd.DataFrame,
     step_size: str = '1Y',
     lambda_param: float = 0.94,
@@ -406,20 +388,11 @@ def task_10_exp_efficient_frontier_dynamics_expanding(
     Tuple[Dict[datetime, dict], pd.DataFrame]
         (словарь эффективных границ, DataFrame с метриками стабильности)
     """
-    print(f"Задача 10b: Анализ эффективной границы расширяющимся окном с эксп. забыванием (λ={lambda_param})...")
 
-    # Анализ расширяющимся окном с экспоненциальным забыванием
     analysis_results = expanding_window_analysis(returns, step_size, lambda_param)
-    print(f"Получено окон: {len(analysis_results)}")
-
-    # Расчет эффективных границ для каждого окна
     frontiers = calculate_efficient_frontiers_over_time(analysis_results, n_points)
-    print(f"Рассчитано эффективных границ: {len(frontiers)}")
-
-    # Анализ стабильности
     stability_metrics = analyze_efficient_frontier_stability(frontiers, returns.columns)
-    print(f"Рассчитаны метрики стабильности")
-
+    
     return frontiers, stability_metrics
 
 
@@ -447,7 +420,6 @@ def compare_frontier_methods(
         for date in dates:
             frontier = frontiers[date]
 
-            # Вычисление максимального Шарп-отношения (при безрисковой ставке = 0)
             sharpe_ratios = frontier['returns'] / frontier['stds']
             max_sharpe = np.max(sharpe_ratios)
 

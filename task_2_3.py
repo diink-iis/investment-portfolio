@@ -1,16 +1,6 @@
-"""
-Задача 2-3: Расчет векторов доходностей и ковариационных матриц
-
-Задача 2:
-a. Рассчитать векторы доходностей и ковариационные матрицы скользящим окном
-b. Рассчитать векторы доходностей и ковариационные матрицы расширяющимся окном
-
-Задача 3: Выполнить задачу 2 с экспоненциальным забыванием
-"""
-
 import numpy as np
 import pandas as pd
-from typing import Tuple, Dict, List
+from typing import Dict
 from datetime import datetime, timedelta
 
 
@@ -274,76 +264,3 @@ def _parse_period_to_days(period: str) -> int:
         raise ValueError(f"Unsupported period unit: {unit}")
 
     return value * period_map[unit]
-
-
-def main():
-    """
-    Главная функция для демонстрации работы.
-    """
-    # Загрузка данных
-    print("Загрузка данных...")
-    prices = load_prices_data('data/prices_moex_new.csv')
-    print(f"Загружено данных: {prices.shape}")
-    print(f"Период: {prices.index.min()} - {prices.index.max()}")
-    print(f"Акции: {list(prices.columns)}\n")
-
-    # Расчет доходностей
-    print("Расчет доходностей...")
-    returns = calculate_returns(prices)
-    print(f"Доходности: {returns.shape}\n")
-
-    # Задача 2a: Скользящее окно
-    print("Задача 2a: Скользящее окно (1 год, шаг 1 год)...")
-    rolling_results = rolling_window_analysis(returns, window_size='1Y', step_size='1Y')
-    print(f"Получено окон: {len(rolling_results)}")
-
-    # Пример результатов первого окна
-    if rolling_results:
-        first_date = list(rolling_results.keys())[0]
-        first_result = rolling_results[first_date]
-        print(f"Первое окно: {first_result['window_start']} - {first_date}")
-        print(f"Размер окна: {len(first_result['window_returns'])} наблюдений")
-        print(f"Размер ковариационной матрицы: {first_result['covariance_matrix'].shape}")
-        print(f"Пример средних доходностей: {first_result['mean_returns'][:5]}...")
-        print()
-
-    # Задача 2b: Расширяющееся окно
-    print("Задача 2b: Расширяющееся окно (шаг 1 год)...")
-    expanding_results = expanding_window_analysis(returns, step_size='1Y')
-    print(f"Получено окон: {len(expanding_results)}")
-
-    if expanding_results:
-        first_date = list(expanding_results.keys())[0]
-        first_result = expanding_results[first_date]
-        print(f"Первое окно: {first_result['window_start']} - {first_result['window_end']}")
-        print(f"Размер окна: {first_result['window_size']} наблюдений")
-        print()
-
-    # Задача 3: Экспоненциальное забывание
-    print("Задача 3: Скользящее окно с экспоненциальным забыванием (lambda=0.94)...")
-    rolling_exp_results = rolling_window_analysis(
-        returns, window_size='1Y', step_size='1Y', lambda_param=0.94
-    )
-    print(f"Получено окон: {len(rolling_exp_results)}")
-
-    if rolling_exp_results:
-        first_date = list(rolling_exp_results.keys())[0]
-        first_result = rolling_exp_results[first_date]
-        print(f"Первое окно: {first_result['window_start']} - {first_date}")
-        print(f"Пример средних доходностей (эксп. взвешивание): {first_result['mean_returns'][:5]}...")
-        print()
-
-    print("Расширяющееся окно с экспоненциальным забыванием (lambda=0.94)...")
-    expanding_exp_results = expanding_window_analysis(
-        returns, step_size='1Y', lambda_param=0.94
-    )
-    print(f"Получено окон: {len(expanding_exp_results)}")
-
-    return {
-        'prices': prices,
-        'returns': returns,
-        'rolling': rolling_results,
-        'expanding': expanding_results,
-        'rolling_exp': rolling_exp_results,
-        'expanding_exp': expanding_exp_results
-    }

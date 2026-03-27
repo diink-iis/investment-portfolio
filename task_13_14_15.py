@@ -1,16 +1,3 @@
-"""
-Задачи 13-15: Оценка входящих данных для optimizer на основе исторических β
-
-Задача 13: Рассчитать ковариационную матрицу на основе исторических β (historical betas)
-Задача 14: Построить границу эффективных портфелей на основе полученной ковариационной матрицы
-Задача 15: Построить границу эффективных портфелей для разных исторических окон
-
-Выбор из задач 11-12:
-- Индекс: IMOEX (Мосбиржа)
-- Окно: Скользящее окно длиной в 1 год (252 торговых дня)
-- Схема взвешивания: Равные веса наблюдений
-"""
-
 import numpy as np
 import pandas as pd
 import sys
@@ -262,7 +249,7 @@ def calculate_residual_variances(
     return pd.Series(residuals_var)
 
 
-def task_13_covariance_from_historical_betas(
+def covariance_from_historical_betas(
     returns: pd.DataFrame,
     market_ticker: str = 'MOEX',
     include_residuals: bool = True
@@ -284,55 +271,45 @@ def task_13_covariance_from_historical_betas(
     Dict[str, np.ndarray]
         Словарь с ковариационной матрицей и метаданными
     """
-    
-    
-    
 
-    # Исключаем индекс из списка акций
     stock_tickers = [col for col in returns.columns if col != market_ticker]
     stock_returns = returns[stock_tickers]
 
-    # Расчет бета для всех акций
     betas_with_alpha = calculate_all_betas(returns, market_ticker)
     betas = betas_with_alpha['beta']
 
-    } бета-коэффициентов")
-    
-    )
-    
-    :.4f}")
-    :.4f}")
+    print(f"\nРассчитано {len(betas)} бета-коэффициентов")
+    print(f"Бета-коэффициенты:")
+    print(betas.head(10))
+    print(f"...")
+    print(f"Средняя бета: {betas.mean():.4f}")
+    print(f"Стд. отклонение бета: {betas.std():.4f}")
 
-    # Дисперсия рыночного индекса
     market_variance = returns[market_ticker].var(ddof=1)
-    
+    print(f"\nДисперсия рынка: {market_variance:.6f}")
 
-    # Расчет остаточных дисперсий (если нужно)
     residual_variances = None
     if include_residuals:
         residual_variances = calculate_residual_variances(returns, betas_with_alpha, market_ticker)
-        
-        :.6f}")
+        print(f"Учет остаточных дисперсий")
+        print(f"Средняя остаточная дисперсия: {residual_variances.mean():.6f}")
 
-    # Расчет ковариационной матрицы на основе бета
     cov_matrix_beta = calculate_covariance_from_betas(betas, market_variance, residual_variances)
 
-    # Сравнение с классической ковариационной матрицей
     cov_matrix_classic = stock_returns.cov().values
 
-    
-    : {cov_matrix_beta.mean():.6f}")
-    : {cov_matrix_classic.mean():.6f}")
+    print(f"\nРазмер ковариационной матрицы: {cov_matrix_beta.shape}")
+    print(f"Среднее значение (бета-модель): {cov_matrix_beta.mean():.6f}")
+    print(f"Среднее значение (классическая): {cov_matrix_classic.mean():.6f}")
 
-    # Проверка положительной определенности
     try:
         np.linalg.cholesky(cov_matrix_beta)
-        
+        print("✓ Ковариационная матрица положительно определена")
     except np.linalg.LinAlgError:
-        
+        print("⚠ Ковариационная матрица не положительно определена")
         # Регуляризация
         cov_matrix_beta = cov_matrix_beta + np.eye(cov_matrix_beta.shape[0]) * 1e-8
-        
+        print("✓ Добавлена регуляризация")
 
     return {
         'cov_matrix': cov_matrix_beta,
@@ -346,7 +323,7 @@ def task_13_covariance_from_historical_betas(
     }
 
 
-def task_14_efficient_frontier_from_betas(
+def efficient_frontier_from_betas(
     cov_matrix: np.ndarray,
     mean_returns: np.ndarray,
     n_points: int = 100,
@@ -371,27 +348,24 @@ def task_14_efficient_frontier_from_betas(
     Tuple[np.ndarray, np.ndarray]
         (массив доходностей, массив стандартных отклонений)
     """
-    
-
-    # Расчет эффективной границы
     returns, stds = calculate_efficient_frontier(mean_returns, cov_matrix, n_points)
 
-    } точек")
-    
-    
+    print(f"Эффективная граница: {len(returns)} точек")
+    print(f"Мин. доходность: {returns[0]:.6f}, Стд: {stds[0]:.6f}")
+    print(f"Макс. доходность: {returns[-1]:.6f}, Стд: {stds[-1]:.6f}")
 
     # Шарп-отношение
     sharpe_ratios = returns / stds
     max_sharpe = np.max(sharpe_ratios)
     max_sharpe_idx = np.argmax(sharpe_ratios)
 
-    
-    
+    print(f"Макс. Шарп-отношение: {max_sharpe:.6f}")
+    print(f"При доходности: {returns[max_sharpe_idx]:.6f}, риске: {stds[max_sharpe_idx]:.6f}")
 
     return returns, stds
 
 
-def task_15_efficient_frontier_dynamics_betas(
+def efficient_frontier_dynamics_betas(
     returns: pd.DataFrame,
     market_ticker: str = 'MOEX',
     window_size: str = '1Y',
@@ -423,12 +397,12 @@ def task_15_efficient_frontier_dynamics_betas(
     Tuple[Dict[datetime, dict], pd.DataFrame]
         (словарь эффективных границ, DataFrame с метриками стабильности)
     """
-    
-    
+    print(f"Задача 15: Динамика эффективных границ на основе исторических β")
+    print(f"Окно: {window_size}, Шаг: {step_size}")
 
     # Анализ скользящим окном
     analysis_results = rolling_window_analysis(returns, window_size, step_size)
-    }")
+    print(f"Получено окон: {len(analysis_results)}")
 
     # Для каждого окна рассчитываем бета и эффективную границу
     frontiers = {}
@@ -441,7 +415,7 @@ def task_15_efficient_frontier_dynamics_betas(
 
         # Проверяем, есть ли индекс в данных
         if market_ticker not in window_returns.columns:
-            
+            print(f"⚠ Индекс {market_ticker} не найден в окно на {date}")
             continue
 
         # Исключаем индекс из акций
@@ -484,12 +458,12 @@ def task_15_efficient_frontier_dynamics_betas(
             'max_return_std': ef_stds[-1]
         }
 
-    }")
+    print(f"Рассчитано эффективных границ: {len(frontiers)}")
 
     # Анализ стабильности
     if frontiers:
         stability_metrics = analyze_efficient_frontier_stability(frontiers)
-        
+        print(f"Рассчитаны метрики стабильности")
         return frontiers, stability_metrics
     else:
         return {}, pd.DataFrame()
@@ -514,113 +488,50 @@ def compare_covariance_methods(
     Dict[str, np.ndarray]
         Словарь с ковариационными матрицами разных методов
     """
-    
+    print("=== Сравнение методов расчета ковариационных матриц ===")
 
     # Классическая матрица
     stock_tickers = [col for col in returns.columns if col != market_ticker]
     cov_classic = returns[stock_tickers].cov().values
 
     # Матрица на основе бета (без остаточных дисперсий)
-    betas_result = task_13_covariance_from_historical_betas(
+    betas_result = covariance_from_historical_betas(
         returns, market_ticker, include_residuals=False
     )
     cov_beta_simple = betas_result['cov_matrix']
 
     # Матрица на основе бета (с остаточными дисперсиями)
-    betas_result_resid = task_13_covariance_from_historical_betas(
+    betas_result_resid = covariance_from_historical_betas(
         returns, market_ticker, include_residuals=True
     )
     cov_beta_residuals = betas_result_resid['cov_matrix']
 
-    
-    
-    :.6f}")
-    :.6f}")
-    :.6e}")
+    print(f"\n=== Статистика сравнения ===")
+    print(f"Классическая матрица:")
+    print(f"  - Среднее: {cov_classic.mean():.6f}")
+    print(f"  - Стд: {cov_classic.std():.6f}")
+    print(f"  - Определитель: {np.linalg.det(cov_classic):.6e}")
 
-    :")
-    :.6f}")
-    :.6f}")
-    :.6e}")
+    print(f"\nБета-модель (без остатков):")
+    print(f"  - Среднее: {cov_beta_simple.mean():.6f}")
+    print(f"  - Стд: {cov_beta_simple.std():.6f}")
+    print(f"  - Определитель: {np.linalg.det(cov_beta_simple):.6e}")
 
-    :")
-    :.6f}")
-    :.6f}")
-    :.6e}")
+    print(f"\nБета-модель (с остатками):")
+    print(f"  - Среднее: {cov_beta_residuals.mean():.6f}")
+    print(f"  - Стд: {cov_beta_residuals.std():.6f}")
+    print(f"  - Определитель: {np.linalg.det(cov_beta_residuals):.6e}")
 
     # Разность матриц
     diff_simple = np.abs(cov_classic - cov_beta_simple)
     diff_residuals = np.abs(cov_classic - cov_beta_residuals)
 
-    
-    : {diff_simple.mean():.6f}")
-    : {diff_residuals.mean():.6f}")
+    print(f"\nСредняя абсолютная разность:")
+    print(f"  - Классическая vs Бета (без остатков): {diff_simple.mean():.6f}")
+    print(f"  - Классическая vs Бета (с остатками): {diff_residuals.mean():.6f}")
 
     return {
         'classic': cov_classic,
         'beta_simple': cov_beta_simple,
         'beta_residuals': cov_beta_residuals
     }
-
-
-def main():
-    """
-    Главная функция для демонстрации работы.
-    """
-    
-    
-    
-    
-
-    # Загрузка данных
-    
-    prices = load_prices_data('../data/prices_moex_new.csv')
-    
-
-    # Расчет доходностей
-    
-    returns = calculate_returns(prices)
-    
-    }")
-    
-
-    # Задача 13: Расчет ковариационной матрицы на основе бета
-    betas_result = task_13_covariance_from_historical_betas(
-        returns, market_ticker='MOEX', include_residuals=True
-    )
-    
-
-    # Задача 14: Эффективная граница на основе бета
-    stock_tickers = [col for col in returns.columns if col != 'MOEX']
-    stock_returns = returns[stock_tickers]
-    mean_returns = stock_returns.mean().values
-
-    task_14_efficient_frontier_from_betas(
-        betas_result['cov_matrix'],
-        mean_returns,
-        n_points=50,
-        method_name="Исторические β"
-    )
-    
-
-    # Задача 15: Динамика эффективных границ
-    beta_frontiers, beta_stability = task_15_efficient_frontier_dynamics_betas(
-        returns, market_ticker='MOEX', window_size='1Y', step_size='1Y',
-        include_residuals=True, n_points=50
-    )
-    
-
-    # Сравнение методов
-    compare_covariance_methods(returns, market_ticker='MOEX')
-
-    return {
-        'prices': prices,
-        'returns': returns,
-        'betas_result': betas_result,
-        'beta_frontiers': beta_frontiers,
-        'beta_stability': beta_stability
-    }
-
-
-if __name__ == '__main__':
-    results = main()

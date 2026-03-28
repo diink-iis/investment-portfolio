@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import sys
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Union
 from datetime import datetime
 
 # Импорт функций из task_2_3
@@ -11,7 +11,7 @@ from task_2_3 import (
     rolling_window_analysis
 )
 
-# Импорт функций из task_9-10
+# Импорт функций из task_9_10
 from task_9_10 import (
     calculate_efficient_frontier,
     analyze_efficient_frontier_stability
@@ -65,6 +65,25 @@ def load_prices_data(file_path: str) -> pd.DataFrame:
     return preprocess_data(df)
 
 
+def load_imoex_data(file_path: str) -> pd.DataFrame:
+    """
+    Загрузка данных индекса IMOEX из CSV файла.
+
+    Parameters:
+    -----------
+    file_path : str
+        Путь к файлу с данными индекса IMOEX
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame с доходностями индекса IMOEX
+    """
+    df = pd.read_csv(file_path, sep=';', decimal=',')
+
+    return preprocess_data(df)
+
+
 def calculate_market_model_betas(
     stock_returns: pd.Series,
     market_returns: pd.Series
@@ -106,41 +125,53 @@ def calculate_market_model_betas(
 
 
 def calculate_all_betas(
-    returns: pd.DataFrame,
-    market_ticker: str = 'MOEX'
+    imoex_returns: Union[pd.Series, pd.DataFrame],
+    stock_returns: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Расчет исторических бета для всех акций относительно рыночного индекса.
+    Расчет исторических бета для всех акций относительно рыночного индекса IMOEX.
 
     Parameters:
     -----------
-    returns : pd.DataFrame
-        DataFrame с доходностями всех акций и индекса
-    market_ticker : str
-        Тикер рыночного индекса (должен быть в returns.columns)
+    imoex_returns : pd.Series or pd.DataFrame
+        Доходности индекса IMOEX
+    stock_returns : pd.DataFrame
+        DataFrame с доходностями акций
 
     Returns:
     --------
     pd.DataFrame
         DataFrame с бета для всех акций
     """
-    if market_ticker not in returns.columns:
-        raise ValueError(f"Тикер индекса {market_ticker} не найден в данных")
+    # Преобразуем imoex_returns в Series если это DataFrame
+    if isinstance(imoex_returns, pd.DataFrame):
+        imoex_series = imoex_returns.iloc[:, 0]  # Первая колонка
+    else:
+        imoex_series = imoex_returns
 
-    market_returns = returns[market_ticker]
-    stock_tickers = [col for col in returns.columns if col != market_ticker]
+    # Объединение данных (inner join - только общие даты)
+    combined_data = stock_returns.copy()
+    combined_data['IMOEX'] = imoex_series
+
+    stock_tickers = [col for col in stock_returns.columns if col != 'IMOEX' and col != 'IMOEX']
 
     betas_data = []
 
     for ticker in stock_tickers:
-        stock_returns = returns[ticker]
-        alpha, beta = calculate_market_model_betas(stock_returns, market_returns)
+        if ticker not in combined_data.columns:
+            continue
 
-        betas_data.append({
-            'ticker': ticker,
-            'alpha': alpha,
-            'beta': beta
-        })
+        stock_returns_ticker = combined_data[ticker]
+        market_returns = combined_data['IMOEX']
+
+        alpha, beta = calculate_market_model_betas(stock_returns_ticker, market_returns)
+
+        if not np.isnan(alpha) and not np.isnan(beta):
+            betas_data.append({
+                'ticker': ticker,
+                'alpha': alpha,
+                'beta': beta
+            })
 
     df = pd.DataFrame(betas_data)
     df.set_index('ticker', inplace=True)
@@ -160,7 +191,7 @@ def calculate_covariance_from_betas(
     Cov(r_i, r_j) = β_i * β_j * σ_m² + Cov(ε_i, ε_j)
 
     Если предположить, что ошибки ε_i некоррелированы (стандартное предположение):
-    Cov(r_i, r_j) = β_i * β_j * σ_m²  для i ≠ j
+    Cov(r_i, r_j) = β_i * β_j * σ_m² для i ≠ j
     Var(r_i) = β_i² * σ_m² + σ_ε_i²
 
     Parameters:
@@ -200,9 +231,9 @@ def calculate_covariance_from_betas(
 
 
 def calculate_residual_variances(
-    returns: pd.DataFrame,
+    imoex_returns: Union[pd.Series, pd.DataFrame],
     betas: pd.DataFrame,
-    market_ticker: str = 'MOEX'
+    stock_returns: pd.DataFrame
 ) -> pd.Series:
     """
     Расчет дисперсий остатков (residual variances) для каждой акции.
@@ -211,28 +242,33 @@ def calculate_residual_variances(
 
     Parameters:
     -----------
-    returns : pd.DataFrame
-        DataFrame с доходностями
+    imoex_returns : pd.Series or pd.DataFrame
+        Доходности индекса IMOEX
     betas : pd.DataFrame
         DataFrame с бета-коэффициентами (должен содержать 'alpha' и 'beta')
-    market_ticker : str
-        Тикер рыночного индекса
+    stock_returns : pd.DataFrame
+        DataFrame с доходностями
 
     Returns:
     --------
     pd.Series
         Дисперсии остатков для каждой акции
     """
-    market_returns = returns[market_ticker]
+    # Преобразуем imoex_returns в Series если это DataFrame
+    if isinstance(imoex_returns, pd.DataFrame):
+        imoex_series = imoex_returns.iloc[:, 0]  # Первая колонка
+    else:
+        imoex_series = imoex_returns
+
     residuals_var = {}
 
     for ticker in betas.index:
-        if ticker not in returns.columns or ticker == market_ticker:
+        if ticker not in stock_returns.columns:
             residuals_var[ticker] = 0.0
             continue
 
-        stock_returns = returns[ticker]
-        combined = pd.DataFrame({'stock': stock_returns, 'market': market_returns}).dropna()
+        stock_returns_ticker = stock_returns[ticker]
+        combined = pd.DataFrame({'stock': stock_returns_ticker, 'market': imoex_series}).dropna()
 
         if len(combined) < 2:
             residuals_var[ticker] = 0.0
@@ -250,8 +286,8 @@ def calculate_residual_variances(
 
 
 def covariance_from_historical_betas(
-    returns: pd.DataFrame,
-    market_ticker: str = 'MOEX',
+    imoex_returns: Union[pd.Series, pd.DataFrame],
+    stock_returns: pd.DataFrame,
     include_residuals: bool = True
 ) -> Dict[str, np.ndarray]:
     """
@@ -259,10 +295,10 @@ def covariance_from_historical_betas(
 
     Parameters:
     -----------
-    returns : pd.DataFrame
-        DataFrame с доходностями всех акций и индекса
-    market_ticker : str
-        Тикер рыночного индекса
+    imoex_returns : pd.Series or pd.DataFrame
+        Доходности индекса IMOEX
+    stock_returns : pd.DataFrame
+        DataFrame с доходностями всех акций
     include_residuals : bool
         Учитывать ли остаточные дисперсии
 
@@ -271,45 +307,25 @@ def covariance_from_historical_betas(
     Dict[str, np.ndarray]
         Словарь с ковариационной матрицей и метаданными
     """
+    stock_tickers = [col for col in stock_returns.columns if col != 'IMOEX']
+    stock_returns_only = stock_returns[stock_tickers]
 
-    stock_tickers = [col for col in returns.columns if col != market_ticker]
-    stock_returns = returns[stock_tickers]
-
-    betas_with_alpha = calculate_all_betas(returns, market_ticker)
+    betas_with_alpha = calculate_all_betas(imoex_returns, stock_returns_only)
     betas = betas_with_alpha['beta']
 
-    print(f"\nРассчитано {len(betas)} бета-коэффициентов")
-    print(f"Бета-коэффициенты:")
-    print(betas.head(10))
-    print(f"...")
-    print(f"Средняя бета: {betas.mean():.4f}")
-    print(f"Стд. отклонение бета: {betas.std():.4f}")
-
-    market_variance = returns[market_ticker].var(ddof=1)
-    print(f"\nДисперсия рынка: {market_variance:.6f}")
+    # Дисперсия рынка
+    if isinstance(imoex_returns, pd.DataFrame):
+        market_variance = imoex_returns.iloc[:, 0].var(ddof=1)
+    else:
+        market_variance = imoex_returns.var(ddof=1)
 
     residual_variances = None
     if include_residuals:
-        residual_variances = calculate_residual_variances(returns, betas_with_alpha, market_ticker)
-        print(f"Учет остаточных дисперсий")
-        print(f"Средняя остаточная дисперсия: {residual_variances.mean():.6f}")
+        residual_variances = calculate_residual_variances(imoex_returns, betas_with_alpha, stock_returns_only)
 
     cov_matrix_beta = calculate_covariance_from_betas(betas, market_variance, residual_variances)
 
-    cov_matrix_classic = stock_returns.cov().values
-
-    print(f"\nРазмер ковариационной матрицы: {cov_matrix_beta.shape}")
-    print(f"Среднее значение (бета-модель): {cov_matrix_beta.mean():.6f}")
-    print(f"Среднее значение (классическая): {cov_matrix_classic.mean():.6f}")
-
-    try:
-        np.linalg.cholesky(cov_matrix_beta)
-        print("✓ Ковариационная матрица положительно определена")
-    except np.linalg.LinAlgError:
-        print("⚠ Ковариационная матрица не положительно определена")
-        # Регуляризация
-        cov_matrix_beta = cov_matrix_beta + np.eye(cov_matrix_beta.shape[0]) * 1e-8
-        print("✓ Добавлена регуляризация")
+    cov_matrix_classic = stock_returns_only.cov().values
 
     return {
         'cov_matrix': cov_matrix_beta,
@@ -317,7 +333,6 @@ def covariance_from_historical_betas(
         'alphas': betas_with_alpha['alpha'],
         'residual_variances': residual_variances,
         'market_variance': market_variance,
-        'market_ticker': market_ticker,
         'stock_tickers': stock_tickers,
         'cov_matrix_classic': cov_matrix_classic
     }
@@ -350,24 +365,12 @@ def efficient_frontier_from_betas(
     """
     returns, stds = calculate_efficient_frontier(mean_returns, cov_matrix, n_points)
 
-    print(f"Эффективная граница: {len(returns)} точек")
-    print(f"Мин. доходность: {returns[0]:.6f}, Стд: {stds[0]:.6f}")
-    print(f"Макс. доходность: {returns[-1]:.6f}, Стд: {stds[-1]:.6f}")
-
-    # Шарп-отношение
-    sharpe_ratios = returns / stds
-    max_sharpe = np.max(sharpe_ratios)
-    max_sharpe_idx = np.argmax(sharpe_ratios)
-
-    print(f"Макс. Шарп-отношение: {max_sharpe:.6f}")
-    print(f"При доходности: {returns[max_sharpe_idx]:.6f}, риске: {stds[max_sharpe_idx]:.6f}")
-
     return returns, stds
 
 
 def efficient_frontier_dynamics_betas(
-    returns: pd.DataFrame,
-    market_ticker: str = 'MOEX',
+    imoex_returns: Union[pd.Series, pd.DataFrame],
+    stock_returns: pd.DataFrame,
     window_size: str = '1Y',
     step_size: str = '1Y',
     include_residuals: bool = True,
@@ -379,10 +382,10 @@ def efficient_frontier_dynamics_betas(
 
     Parameters:
     -----------
-    returns : pd.DataFrame
-        DataFrame с доходностями всех акций и индекса
-    market_ticker : str
-        Тикер рыночного индекса
+    imoex_returns : pd.Series or pd.DataFrame
+        Доходности индекса IMOEX
+    stock_returns : pd.DataFrame
+        DataFrame с доходностями всех акций
     window_size : str
         Размер скользящего окна
     step_size : str
@@ -397,12 +400,19 @@ def efficient_frontier_dynamics_betas(
     Tuple[Dict[datetime, dict], pd.DataFrame]
         (словарь эффективных границ, DataFrame с метриками стабильности)
     """
-    print(f"Задача 15: Динамика эффективных границ на основе исторических β")
-    print(f"Окно: {window_size}, Шаг: {step_size}")
+    # Подготовка данных: добавляем IMOEX к stock_returns
+    combined_returns = stock_returns.copy()
+
+    # Преобразуем imoex_returns в Series если это DataFrame
+    if isinstance(imoex_returns, pd.DataFrame):
+        imoex_series = imoex_returns.iloc[:, 0]
+    else:
+        imoex_series = imoex_returns
+
+    combined_returns['IMOEX'] = imoex_series
 
     # Анализ скользящим окном
-    analysis_results = rolling_window_analysis(returns, window_size, step_size)
-    print(f"Получено окон: {len(analysis_results)}")
+    analysis_results = rolling_window_analysis(combined_returns, window_size, step_size)
 
     # Для каждого окна рассчитываем бета и эффективную границу
     frontiers = {}
@@ -411,28 +421,27 @@ def efficient_frontier_dynamics_betas(
         # Получаем window_returns как DataFrame (используя индекс из исходных данных)
         window_start = result['window_start']
         window_end = date
-        window_returns = returns.loc[window_start:window_end]
+        window_returns = combined_returns.loc[window_start:window_end]
 
         # Проверяем, есть ли индекс в данных
-        if market_ticker not in window_returns.columns:
-            print(f"⚠ Индекс {market_ticker} не найден в окно на {date}")
+        if 'IMOEX' not in window_returns.columns:
             continue
 
         # Исключаем индекс из акций
-        stock_tickers = [col for col in window_returns.columns if col != market_ticker]
-        stock_returns = window_returns[stock_tickers]
+        stock_tickers = [col for col in window_returns.columns if col != 'IMOEX']
+        stock_returns_window = window_returns[stock_tickers]
 
         # Расчет бета
-        betas_with_alpha = calculate_all_betas(window_returns, market_ticker)
+        betas_with_alpha = calculate_all_betas(window_returns['IMOEX'], stock_returns_window)
         betas = betas_with_alpha['beta']
 
         # Дисперсия рынка
-        market_variance = window_returns[market_ticker].var(ddof=1)
+        market_variance = window_returns['IMOEX'].var(ddof=1)
 
         # Остаточные дисперсии
         residual_variances = None
         if include_residuals:
-            residual_variances = calculate_residual_variances(window_returns, betas_with_alpha, market_ticker)
+            residual_variances = calculate_residual_variances(window_returns['IMOEX'], betas_with_alpha, stock_returns_window)
 
         # Ковариационная матрица на основе бета
         cov_matrix_beta = calculate_covariance_from_betas(betas, market_variance, residual_variances)
@@ -444,7 +453,7 @@ def efficient_frontier_dynamics_betas(
             cov_matrix_beta = cov_matrix_beta + np.eye(cov_matrix_beta.shape[0]) * 1e-8
 
         # Средние доходности (только для акций)
-        mean_returns = stock_returns.mean().values
+        mean_returns = stock_returns_window.mean().values
 
         # Эффективная граница
         ef_returns, ef_stds = calculate_efficient_frontier(mean_returns, cov_matrix_beta, n_points)
@@ -458,80 +467,278 @@ def efficient_frontier_dynamics_betas(
             'max_return_std': ef_stds[-1]
         }
 
-    print(f"Рассчитано эффективных границ: {len(frontiers)}")
-
     # Анализ стабильности
     if frontiers:
         stability_metrics = analyze_efficient_frontier_stability(frontiers)
-        print(f"Рассчитаны метрики стабильности")
         return frontiers, stability_metrics
     else:
         return {}, pd.DataFrame()
 
 
 def compare_covariance_methods(
-    returns: pd.DataFrame,
-    market_ticker: str = 'MOEX'
+    imoex_returns: Union[pd.Series, pd.DataFrame],
+    stock_returns: pd.DataFrame
 ) -> Dict[str, np.ndarray]:
     """
     Сравнение ковариационных матриц, рассчитанных разными методами.
 
     Parameters:
     -----------
-    returns : pd.DataFrame
+    imoex_returns : pd.Series or pd.DataFrame
+        Доходности индекса IMOEX
+    stock_returns : pd.DataFrame
         DataFrame с доходностями
-    market_ticker : str
-        Тикер рыночного индекса
 
     Returns:
     --------
     Dict[str, np.ndarray]
         Словарь с ковариационными матрицами разных методов
     """
-    print("=== Сравнение методов расчета ковариационных матриц ===")
+    # Подготовка данных: добавляем IMOEX к stock_returns
+    combined_returns = stock_returns.copy()
+
+    # Преобразуем imoex_returns в Series если это DataFrame
+    if isinstance(imoex_returns, pd.DataFrame):
+        imoex_series = imoex_returns.iloc[:, 0]
+    else:
+        imoex_series = imoex_returns
+
+    combined_returns['IMOEX'] = imoex_series
 
     # Классическая матрица
-    stock_tickers = [col for col in returns.columns if col != market_ticker]
-    cov_classic = returns[stock_tickers].cov().values
+    stock_tickers = [col for col in combined_returns.columns if col != 'IMOEX']
+    cov_classic = combined_returns[stock_tickers].cov().values
 
     # Матрица на основе бета (без остаточных дисперсий)
     betas_result = covariance_from_historical_betas(
-        returns, market_ticker, include_residuals=False
+        imoex_series,
+        combined_returns,
+        include_residuals=False
     )
     cov_beta_simple = betas_result['cov_matrix']
 
     # Матрица на основе бета (с остаточными дисперсиями)
     betas_result_resid = covariance_from_historical_betas(
-        returns, market_ticker, include_residuals=True
+        imoex_series,
+        combined_returns,
+        include_residuals=True
     )
     cov_beta_residuals = betas_result_resid['cov_matrix']
-
-    print(f"\n=== Статистика сравнения ===")
-    print(f"Классическая матрица:")
-    print(f"  - Среднее: {cov_classic.mean():.6f}")
-    print(f"  - Стд: {cov_classic.std():.6f}")
-    print(f"  - Определитель: {np.linalg.det(cov_classic):.6e}")
-
-    print(f"\nБета-модель (без остатков):")
-    print(f"  - Среднее: {cov_beta_simple.mean():.6f}")
-    print(f"  - Стд: {cov_beta_simple.std():.6f}")
-    print(f"  - Определитель: {np.linalg.det(cov_beta_simple):.6e}")
-
-    print(f"\nБета-модель (с остатками):")
-    print(f"  - Среднее: {cov_beta_residuals.mean():.6f}")
-    print(f"  - Стд: {cov_beta_residuals.std():.6f}")
-    print(f"  - Определитель: {np.linalg.det(cov_beta_residuals):.6e}")
-
-    # Разность матриц
-    diff_simple = np.abs(cov_classic - cov_beta_simple)
-    diff_residuals = np.abs(cov_classic - cov_beta_residuals)
-
-    print(f"\nСредняя абсолютная разность:")
-    print(f"  - Классическая vs Бета (без остатков): {diff_simple.mean():.6f}")
-    print(f"  - Классическая vs Бета (с остатками): {diff_residuals.mean():.6f}")
 
     return {
         'classic': cov_classic,
         'beta_simple': cov_beta_simple,
         'beta_residuals': cov_beta_residuals
     }
+
+
+# ============ ГЛАВНЫЕ ФУНКЦИИ ЗАДАЧ ============
+
+def task_13_covariance_from_historical_betas(
+    imoex_returns_file: str,
+    stock_returns_file: str,
+    include_residuals: bool = True
+) -> Dict[str, np.ndarray]:
+    """
+    Задача 13: Рассчитать ковариационную матрицу на основе исторических β
+    с использованием официального индекса IMOEX из отдельного файла.
+
+    Parameters:
+    -----------
+    imoex_returns_file : str
+        Путь к файлу с данными индекса IMOEX
+    stock_returns_file : str
+        Путь к файлу с данными о ценах акций
+    include_residuals : bool
+        Учитывать ли остаточные дисперсии
+
+    Returns:
+    --------
+    Dict[str, np.ndarray]
+        Словарь с ковариационной матрицей и метаданными
+    """
+    # Загрузка данных
+    stock_prices = load_prices_data(stock_returns_file)
+    imoex_prices = load_imoex_data(imoex_returns_file)
+
+    # Расчет доходностей
+    stock_returns = calculate_returns(stock_prices)
+    imoex_returns = calculate_returns(imoex_prices)
+
+    # Расчет ковариационной матрицы
+    result = covariance_from_historical_betas(
+        imoex_returns,
+        stock_returns,
+        include_residuals
+    )
+
+    return result
+
+
+def task_14_efficient_frontier_from_betas(
+    imoex_returns_file: str,
+    stock_returns_file: str,
+    n_points: int = 50,
+    include_residuals: bool = True
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Задача 14: Построить эффективную границу на основе бета-коэффициентов.
+
+    Parameters:
+    -----------
+    imoex_returns_file : str
+        Путь к файлу с данными индекса IMOEX
+    stock_returns_file : str
+        Путь к файлу с данными о ценах акций
+    n_points : int
+        Количество точек на эффективной границе
+    include_residuals : bool
+        Учитывать ли остаточные дисперсии
+
+    Returns:
+    --------
+    Tuple[np.ndarray, np.ndarray]
+        (массив доходностей, массив стандартных отклонений)
+    """
+    # Загрузка данных
+    stock_prices = load_prices_data(stock_returns_file)
+    imoex_prices = load_imoex_data(imoex_returns_file)
+
+    # Расчет доходностей
+    stock_returns = calculate_returns(stock_prices)
+    imoex_returns = calculate_returns(imoex_prices)
+
+    # Получаем только акции
+    stock_tickers = [col for col in stock_returns.columns if col != 'IMOEX']
+    stock_returns_only = stock_returns[stock_tickers]
+
+    # Расчет ковариационной матрицы на основе бета
+    betas_result = covariance_from_historical_betas(
+        imoex_returns,
+        stock_returns,
+        include_residuals
+    )
+
+    cov_matrix = betas_result['cov_matrix']
+    mean_returns = stock_returns_only.mean().values
+
+    # Эффективная граница
+    ef_returns, ef_stds = calculate_efficient_frontier(mean_returns, cov_matrix, n_points)
+
+    return ef_returns, ef_stds
+
+
+def task_15_efficient_frontier_dynamics_betas(
+    imoex_returns_file: str,
+    stock_returns_file: str,
+    window_size: str = '1Y',
+    step_size: str = '1Y',
+    include_residuals: bool = True,
+    n_points: int = 50
+) -> Tuple[Dict[datetime, dict], pd.DataFrame]:
+    """
+    Задача 15: Построить динамику эффективных границ на основе бета-коэффициентов.
+
+    Parameters:
+    -----------
+    imoex_returns_file : str
+        Путь к файлу с данными индекса IMOEX
+    stock_returns_file : str
+        Путь к файлу с данными о ценах акций
+    window_size : str
+        Размер скользящего окна
+    step_size : str
+        Размер шага
+    include_residuals : bool
+        Учитывать ли остаточные дисперсии
+    n_points : int
+        Количество точек на эффективной границе
+
+    Returns:
+    --------
+    Tuple[Dict[datetime, dict], pd.DataFrame]
+        (словарь эффективных границ, DataFrame с метриками стабильности)
+    """
+    # Загрузка данных
+    stock_prices = load_prices_data(stock_returns_file)
+    imoex_prices = load_imoex_data(imoex_returns_file)
+
+    # Расчет доходностей
+    stock_returns = calculate_returns(stock_prices)
+    imoex_returns = calculate_returns(imoex_prices)
+
+    # Подготовка данных: добавляем IMOEX к stock_returns
+    combined_returns = stock_returns.copy()
+    combined_returns['IMOEX'] = imoex_returns
+
+    # Анализ скользящим окном
+    frontiers, stability_metrics = efficient_frontier_dynamics_betas(
+        combined_returns['IMOEX'],
+        combined_returns,
+        window_size=window_size,
+        step_size=step_size,
+        include_residuals=include_residuals,
+        n_points=n_points
+    )
+
+    return frontiers, stability_metrics
+
+
+if __name__ == "__main__":
+    # Пример использования
+    print("=== Тестирование функций задач 13-15 ===\n")
+
+    # Загрузка данных
+    stock_prices = load_prices_data('data/prices_moex_new.csv')
+    imoex_prices = load_imoex_data('data/imoex_prices.csv')
+
+    print(f"Акции: {stock_prices.shape}")
+    print(f"IMOEX: {imoex_prices.shape}")
+
+    # Расчет доходностей
+    stock_returns = calculate_returns(stock_prices)
+    imoex_returns = calculate_returns(imoex_prices)
+
+    print(f"\nДоходности акций: {stock_returns.shape}")
+    print(f"Доходности IMOEX: {imoex_returns.shape}")
+
+    # Тест задачи 13
+    print("\n=== Задача 13: Ковариация на основе исторических β ===")
+    task13_result = task_13_covariance_from_historical_betas(
+        'data/imoex_prices.csv',
+        'data/prices_moex_new.csv',
+        include_residuals=True
+    )
+
+    print(f"Бета-коэффициентов рассчитано: {len(task13_result['betas'])}")
+    print(f"Ковариационная матрица: {task13_result['cov_matrix'].shape}")
+    print(f"Дисперсия рынка: {task13_result['market_variance']:.6f}")
+
+    # Тест задачи 14
+    print("\n=== Задача 14: Эффективная граница на основе β ===")
+    ef_returns, ef_stds = task_14_efficient_frontier_from_betas(
+        'data/imoex_prices.csv',
+        'data/prices_moex_new.csv',
+        n_points=50,
+        include_residuals=True
+    )
+
+    print(f"Эффективная граница: {len(ef_returns)} точек")
+    print(f"Мин. доходность: {ef_returns[0]:.6f}, Стд: {ef_stds[0]:.6f}")
+    print(f"Макс. доходность: {ef_returns[-1]:.6f}, Стд: {ef_stds[-1]:.6f}")
+
+    # Тест задачи 15
+    print("\n=== Задача 15: Динамика эффективных границ ===")
+    frontiers, stability = task_15_efficient_frontier_dynamics_betas(
+        'data/imoex_prices.csv',
+        'data/prices_moex_new.csv',
+        window_size='1Y',
+        step_size='1Y',
+        include_residuals=True,
+        n_points=50
+    )
+
+    print(f"Получено окон: {len(frontiers)}")
+    if len(stability) > 0:
+        print(f"Средний мин. риск: {stability['min_std'].mean():.6f}")
+        print(f"Средний макс. Шарп: {stability['max_sharpe'].mean():.6f}")

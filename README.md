@@ -56,7 +56,7 @@ investment-portfolio/
 │
 ├── portfolio_analysis.ipynb  
 │   ├── Isaeva_Kunaeva.pptx
-│   ├── Isaeva_Kunaeva.key
+│   └── Isaeva_Kunaeva.key
 │
 └── README.md                      
 ```
